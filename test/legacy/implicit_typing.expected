@@ -1,0 +1,10 @@
+
+=== Analyzing /home/dell/flang-modernizer/test/legacy/implicit_typing.f ===
+[modernize-require-implicit-none] Explicit IMPLICIT typing found; add IMPLICIT NONE and declare all variables
+[modernize-avoid-fixed-form] Fixed-form source (column-sensitive) detected; convert to free-form
+
+[Impact Analyzer] Finished Semantic Indexing
+
+[Symbol Index Dump]
+
+[Impact Report] No findings.

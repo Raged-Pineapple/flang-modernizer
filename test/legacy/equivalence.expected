@@ -1,0 +1,10 @@
+
+=== Analyzing /home/dell/flang-modernizer/test/legacy/equivalence.f ===
+[modernize-avoid-equivalence] EQUIVALENCE creates unsafe aliasing; replace with explicit variables
+[modernize-avoid-fixed-form] Fixed-form source (column-sensitive) detected; convert to free-form
+
+[Impact Analyzer] Finished Semantic Indexing
+
+[Symbol Index Dump]
+
+[Impact Report] No findings.
