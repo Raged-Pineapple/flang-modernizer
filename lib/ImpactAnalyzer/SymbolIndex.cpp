@@ -5,13 +5,31 @@ namespace modernizer {
 
 void SymbolIndex::indexFile(llvm::StringRef path, Fortran::semantics::SemanticsContext &context) {
   auto &globalScope = context.globalScope();
-  for (const auto &pair : globalScope) {
-    const auto *symbol = &pair.second.get();
-    if (symbol->detailsIf<Fortran::semantics::CommonBlockDetails>()) {
-      std::string blockName = symbol->name().ToString();
-      commonBlockFiles[blockName].push_back(path.str());
+  
+  // Lambda to recursively search all scopes for COMMON blocks
+  auto traverse = [&](const Fortran::semantics::Scope &scope, auto &traverseRef) -> void {
+    
+    // In Flang, COMMON blocks are hidden in a completely separate map: scope.commonBlocks()
+    for (const auto &pair : scope.commonBlocks()) {
+      const auto *symbol = &pair.second.get();
+      if (symbol->detailsIf<Fortran::semantics::CommonBlockDetails>()) {
+        std::string blockName = symbol->name().ToString();
+        
+        // Prevent duplicate entries if a COMMON block appears multiple times in the same file
+        auto &files = commonBlockFiles[blockName];
+        if (files.empty() || files.back() != path.str()) {
+          files.push_back(path.str());
+        }
+      }
     }
-  }
+    
+    // Traverse nested scopes (modules, subprograms, etc.)
+    for (const auto &child : scope.children()) {
+      traverseRef(child, traverseRef);
+    }
+  };
+  
+  traverse(globalScope, traverse);
 }
 
 CommonBlockImpact SymbolIndex::analyzeCommonBlock(llvm::StringRef blockName) const {
