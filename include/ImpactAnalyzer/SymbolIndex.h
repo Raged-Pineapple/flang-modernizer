@@ -14,11 +14,18 @@ struct CommonBlockImpact {
   unsigned affectedFiles = 0;
   llvm::SmallVector<std::string, 4> files;
   bool hasInconsistentDecls = false;
-  bool hasTypeAliasingRisk = false;
+};
+
+// Stores per-file info about a single COMMON block occurrence
+struct CommonBlockEntry {
+  std::string filePath;
+  std::string signature; // e.g. "REAL(4)|REAL(4)|"
 };
 
 class SymbolIndex {
-  llvm::StringMap<llvm::SmallVector<std::string, 4>> commonBlockFiles;
+  // blockName -> list of (file, signature) pairs
+  llvm::StringMap<llvm::SmallVector<CommonBlockEntry, 4>> commonBlockEntries;
+
 public:
   void indexFile(llvm::StringRef path, Fortran::semantics::SemanticsContext &context);
   CommonBlockImpact analyzeCommonBlock(llvm::StringRef blockName) const;
