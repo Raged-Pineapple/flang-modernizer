@@ -1,92 +1,106 @@
 #include "Checks/ArithIfCheck.h"
-#include "Checks/ComputedGotoCheck.h"
-#include "Checks/EquivalenceCheck.h"
+#include "Checks/AssumedSizeCheck.h"
 #include "Checks/CommonBlockCheck.h"
+#include "Checks/ComputedGotoCheck.h"
+#include "Checks/EntryCheck.h"
+#include "Checks/EquivalenceCheck.h"
+#include "Checks/FixedFormCheck.h"
 #include "Checks/ImplicitTypingCheck.h"
 #include "Checks/StmtFunctionCheck.h"
-#include "Checks/FixedFormCheck.h"
-#include "Checks/AssumedSizeCheck.h"
-#include "Checks/EntryCheck.h"
 #include "ImpactAnalyzer/SymbolIndex.h"
+#include "Reporter/ImpactReporter.h"
+
 #include "flang/Parser/parsing.h"
-#include "flang/Parser/provenance.h"
-#include "flang/Common/Fortran-features.h"
-#include "flang/Common/LangOptions.h"
 #include "flang/Semantics/semantics.h"
+#include "flang/Semantics/expression.h"
+#include "flang/Common/Fortran-features.h"
+#include "flang/Common/default-kinds.h"
+#include "flang/Common/LangOptions.h"
 #include "llvm/Support/raw_ostream.h"
+
 #include <iostream>
 #include <string>
 #include <vector>
 
-using namespace Fortran::parser;
-using namespace Fortran::semantics;
-
-int main(int argc, char **argv) {
+int main(int argc, char *argv[]) {
   if (argc < 2) {
     std::cerr << "Usage: flang-modernizer <file1.f> [file2.f ...]\n";
     return 1;
   }
 
-  std::vector<std::string> paths;
+  std::vector<std::string> files;
   for (int i = 1; i < argc; ++i) {
-    paths.push_back(argv[i]);
+    files.push_back(argv[i]);
   }
 
   modernizer::SymbolIndex symIndex;
-  
-  Fortran::common::IntrinsicTypeDefaultKinds defaultKinds;
-  Fortran::common::LanguageFeatureControl features;
-  Fortran::common::LangOptions langOpts;
 
-  for (const auto &path : paths) {
-    std::cout << "\n=== Analyzing " << path << " ===\n";
-    
-    AllSources allSources;
-    AllCookedSources allCooked(allSources);
-    Options options;
+  for (const auto &filePath : files) {
+    std::cout << "\n=== Analyzing " << filePath << " ===\n";
 
-    bool isFixedForm = (path.rfind(".f") == path.size() - 2) ||
-                       (path.rfind(".F") == path.size() - 2);
-    options.isFixedForm = isFixedForm;
-    options.features = features;
+    Fortran::parser::Options options;
+    options.isFixedForm = filePath.size() >= 2 &&
+                          filePath.substr(filePath.size() - 2) == ".f";
 
-    Parsing parsing(allCooked);
-    parsing.Prescan(path, options);
-    parsing.Parse(llvm::errs());
+    Fortran::common::IntrinsicTypeDefaultKinds defaultKinds;
+    Fortran::common::LanguageFeatureControl features;
+    Fortran::common::LangOptions langOptions;
+    Fortran::parser::AllSources allSources;
+    Fortran::parser::AllCookedSources allCooked(allSources);
+    Fortran::parser::Parsing parsing(allCooked);
 
+    parsing.Prescan(filePath, options);
     if (!parsing.messages().empty()) {
       parsing.messages().Emit(llvm::errs(), allCooked);
     }
+    parsing.Parse(llvm::outs());
 
-    if (parsing.parseTree().has_value()) {
-      // Remove const so Semantics can mutate/decorate the tree
-      auto &tree = *parsing.parseTree();
-      
-      // Pass the required 4 arguments
-      SemanticsContext context{defaultKinds, features, langOpts, allCooked};
-      Semantics semantics{context, tree};
-      semantics.Perform();
-      
-      if (context.AnyFatalError()) {
-        std::cerr << "Semantics failed for " << path << " (likely missing includes/modules, skipping semantic indexing)\n";
-      } else {
-        symIndex.indexFile(path, context);
-      }
+    // Dereference the optional to get the Program& the checks expect
+    auto &parseTree = *parsing.parseTree();
 
-      modernizer::ArithIfCheck{}.Walk(tree, allCooked);
-      modernizer::ComputedGotoCheck{}.Walk(tree, allCooked);
-      modernizer::EquivalenceCheck{}.Walk(tree, allCooked);
-      modernizer::CommonBlockCheck{}.Walk(tree, allCooked);
-      modernizer::ImplicitTypingCheck{}.Walk(tree, allCooked);
-      modernizer::StmtFunctionCheck{}.Walk(tree, allCooked);
-      modernizer::FixedFormCheck{isFixedForm}.Walk(tree, allCooked);
-      modernizer::AssumedSizeCheck{}.Walk(tree, allCooked);
-      modernizer::EntryCheck{}.Walk(tree, allCooked);
-    } else {
-      std::cerr << "Failed to parse " << path << "\n";
-    }
+    // --- Phase 1: Syntactic checks (each has its own Walk(Program&, allCooked)) ---
+    modernizer::ArithIfCheck arithCheck;
+    arithCheck.Walk(parseTree, allCooked);
+
+    modernizer::ComputedGotoCheck cgCheck;
+    cgCheck.Walk(parseTree, allCooked);
+
+    modernizer::EquivalenceCheck eqCheck;
+    eqCheck.Walk(parseTree, allCooked);
+
+    modernizer::CommonBlockCheck cbCheck;
+    cbCheck.Walk(parseTree, allCooked);
+
+    modernizer::ImplicitTypingCheck itCheck;
+    itCheck.Walk(parseTree, allCooked);
+
+    modernizer::StmtFunctionCheck sfCheck;
+    sfCheck.Walk(parseTree, allCooked);
+
+    modernizer::AssumedSizeCheck asCheck;
+    asCheck.Walk(parseTree, allCooked);
+
+    modernizer::EntryCheck entCheck;
+    entCheck.Walk(parseTree, allCooked);
+
+    modernizer::FixedFormCheck ffCheck(options.isFixedForm);
+    ffCheck.Walk(parseTree, allCooked);
+
+    // --- Phase 2: Semantic indexing ---
+    Fortran::semantics::SemanticsContext semCtx(
+        defaultKinds, features, langOptions, allCooked);
+    Fortran::semantics::Semantics semantics(semCtx, parseTree);
+    semantics.Perform();
+    symIndex.indexFile(filePath, semCtx);
   }
 
-  std::cout << "\n[Impact Analyzer] Finished Semantic Indexing\n"; symIndex.dump();
+  std::cout << "\n[Impact Analyzer] Finished Semantic Indexing\n";
+  symIndex.dump();
+
+  // --- Phase 3: Ranked impact report ---
+  modernizer::ImpactReporter reporter;
+  reporter.collectFromIndex(symIndex);
+  reporter.printReport();
+
   return 0;
 }
