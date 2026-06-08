@@ -1,6 +1,6 @@
 
-=== Analyzing /home/dell/flang-modernizer/test/legacy/assumed_size.f ===
-[modernize-avoid-assumed-size] Assumed-size dummy(*) prevents optimization; use explicit or assumed-shape
+=== Analyzing test/legacy/assumed_size.f ===
+line 3: [modernize-avoid-assumed-size] Assumed-size dummy(*) prevents optimization; use explicit or assumed-shape
 [modernize-avoid-fixed-form] Fixed-form source (column-sensitive) detected; convert to free-form
 
 [Impact Analyzer] Finished Semantic Indexing

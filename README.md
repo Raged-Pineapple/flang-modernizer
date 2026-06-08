@@ -45,3 +45,56 @@ Please refer to the following documents for project details:
 - **`DESIGN.md`**: Architecture and design decisions.
 - **`IMPLEMENTATION.md`**: Deep dive into LLVM/Flang integration.
 - **`EVALUATION.md`**: Testing metrics and LAPACK case study results.
+
+## Frontend Showcase Web Application
+The repository includes an interactive **React + TypeScript + Vite + Glassmorphism CSS** static analyzer sandbox showcase under `flang-modernizer/frontend`:
+1. Navigate to the frontend directory:
+   ```bash
+   cd flang-modernizer/frontend
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Launch the local development server:
+   ```bash
+   npm run dev
+   ```
+4. Build the production package:
+   ```bash
+   npm run build
+   ```
+
+## How to Push to Git/GitHub
+To push the entire codebase (including the LLVM/Flang C++ compiler backend and the React frontend) to your remote GitHub repository:
+
+1. **Initialize Git (if not already initialized)**
+   ```bash
+   git init
+   ```
+
+2. **Add Remote Origin**
+   Link your local repository to your remote GitHub repository:
+   ```bash
+   git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git
+   ```
+   *(If the remote `origin` is already defined, update it using: `git remote set-url origin <url>`)*
+
+3. **Stage All Changes**
+   Verify status and stage both backend C++ files and the frontend directory:
+   ```bash
+   git status
+   git add .
+   ```
+
+4. **Commit the Changes**
+   Commit with a clear modernization message:
+   ```bash
+   git commit -m "feat: complete interactive compiler frontend, custom sandbox editor, and weather forecast alignment dashboard"
+   ```
+
+5. **Push to GitHub**
+   Push the committed changes to your default branch (usually `main`):
+   ```bash
+   git push -u origin main
+   ```

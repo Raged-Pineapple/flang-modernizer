@@ -1,23 +1,23 @@
 
-=== Analyzing /home/dell/flang-modernizer/test/legacy/common1.f ===
-[modernize-avoid-common-block] COMMON blocks prevent encapsulation; replace with MODULE variables
+=== Analyzing test/legacy/common1.f ===
+line 3: [modernize-avoid-common-block] COMMON blocks prevent encapsulation; replace with MODULE variables
 [modernize-avoid-fixed-form] Fixed-form source (column-sensitive) detected; convert to free-form
 
-=== Analyzing /home/dell/flang-modernizer/test/legacy/common2.f ===
-[modernize-avoid-common-block] COMMON blocks prevent encapsulation; replace with MODULE variables
+=== Analyzing test/legacy/common2.f ===
+line 3: [modernize-avoid-common-block] COMMON blocks prevent encapsulation; replace with MODULE variables
 [modernize-avoid-fixed-form] Fixed-form source (column-sensitive) detected; convert to free-form
 
-=== Analyzing /home/dell/flang-modernizer/test/legacy/common3.f ===
-[modernize-avoid-common-block] COMMON blocks prevent encapsulation; replace with MODULE variables
+=== Analyzing test/legacy/common3.f ===
+line 3: [modernize-avoid-common-block] COMMON blocks prevent encapsulation; replace with MODULE variables
 [modernize-avoid-fixed-form] Fixed-form source (column-sensitive) detected; convert to free-form
 
 [Impact Analyzer] Finished Semantic Indexing
 
 [Symbol Index Dump]
 COMMON /physdat/
-  - /home/dell/flang-modernizer/test/legacy/common1.f  signature: [REAL(4)|REAL(4)|]
-  - /home/dell/flang-modernizer/test/legacy/common2.f  signature: [REAL(4)|REAL(4)|]
-  - /home/dell/flang-modernizer/test/legacy/common3.f  signature: [INTEGER(4)|INTEGER(4)|]
+  - test/legacy/common1.f  signature: [REAL(4)|REAL(4)|]
+  - test/legacy/common2.f  signature: [REAL(4)|REAL(4)|]
+  - test/legacy/common3.f  signature: [INTEGER(4)|INTEGER(4)|]
   *** WARNING: Inconsistent declarations! Not safe to modernize automatically.
 
 ========================================

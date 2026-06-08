@@ -1,6 +1,6 @@
 
-=== Analyzing /home/dell/flang-modernizer/test/legacy/entry_stmt.f ===
-[modernize-avoid-entry] ENTRY statements are deleted in Fortran 2018; refactor into separate subprograms
+=== Analyzing test/legacy/entry_stmt.f ===
+line 5: [modernize-avoid-entry] ENTRY statements are deleted in Fortran 2018; refactor into separate subprograms
 [modernize-avoid-fixed-form] Fixed-form source (column-sensitive) detected; convert to free-form
 
 [Impact Analyzer] Finished Semantic Indexing

@@ -1,5 +1,5 @@
 
-=== Analyzing test/legacy/common_block.f ===
+=== Analyzing test/legacy/common4.f ===
 line 3: [modernize-avoid-common-block] COMMON blocks prevent encapsulation; replace with MODULE variables
 [modernize-avoid-fixed-form] Fixed-form source (column-sensitive) detected; convert to free-form
 
@@ -7,7 +7,7 @@ line 3: [modernize-avoid-common-block] COMMON blocks prevent encapsulation; repl
 
 [Symbol Index Dump]
 COMMON /physdat/
-  - test/legacy/common_block.f  signature: [REAL(4)|REAL(4)|]
+  - test/legacy/common4.f  signature: [REAL(4)|REAL(4)|]
   OK: Consistent across all 1 file(s). Safe to modernize.
 
 ========================================

@@ -1,6 +1,6 @@
 
-=== Analyzing /home/dell/flang-modernizer/test/legacy/arith_if.f ===
-[modernize-avoid-arithmetic-if] Arithmetic IF is deleted in Fortran 2018; replace with IF-THEN-ELSE
+=== Analyzing test/legacy/arith_if.f ===
+line 4: [modernize-avoid-arithmetic-if] Arithmetic IF is deleted in Fortran 2018; replace with IF-THEN-ELSE
 [modernize-avoid-fixed-form] Fixed-form source (column-sensitive) detected; convert to free-form
 
 [Impact Analyzer] Finished Semantic Indexing

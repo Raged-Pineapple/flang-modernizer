@@ -25,6 +25,13 @@ build/tools/flang-modernizer/flang-modernizer test/legacy/computed_goto.f
 **What to explain to the audience:**
 1. "Here we see the tool analyzing a file and finding a `Computed GOTO` statement."
 2. "Under the hood, this isn't using `grep` or regex. The file is being fed into `Fortran::parser::Parsing`. The tool constructs a full LLVM Parse Tree and uses the `Fortran::parser::Walk` visitor pattern to traverse the AST."
+   
+   *To show the audience the C++ code that proves this, run:*
+   ```bash
+   cat lib/Checks/ComputedGotoCheck.cpp
+   ```
+   *(Point out the `void ComputedGotoCheck::Post(const Fortran::parser::ComputedGotoStmt &x)` method, which proves we are hooking into the compiler's actual syntax tree).*
+
 3. "Because it uses a real compiler frontend, it perfectly handles Fortran's complex syntax rules (like ignoring whitespace or handling line continuations) that break simple regex tools."
 
 ---

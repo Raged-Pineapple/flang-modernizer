@@ -1,6 +1,6 @@
 
-=== Analyzing /home/dell/flang-modernizer/test/legacy/stmt_function.f ===
-[modernize-avoid-stmt-function] Statement functions are deleted in Fortran 95; move to CONTAINS section
+=== Analyzing test/legacy/stmt_function.f ===
+line 3: [modernize-avoid-stmt-function] Statement functions are deleted in Fortran 95; move to CONTAINS section
 [modernize-avoid-fixed-form] Fixed-form source (column-sensitive) detected; convert to free-form
 
 [Impact Analyzer] Finished Semantic Indexing
