@@ -467,6 +467,12 @@ const analyzeCustomCode = (name: string, code: string) => {
 export default function App() {
   const [page, setPage] = useState<'home' | 'tests' | 'weather'>('home');
   const [testTab, setTestTab] = useState<'available' | 'custom'>('available');
+  const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(false);
+
+  // Sync body padding when terminal is collapsed/expanded
+  useEffect(() => {
+    document.body.style.paddingBottom = isTerminalCollapsed ? '60px' : '260px';
+  }, [isTerminalCollapsed]);
   const [selectedTest, setSelectedTest] = useState<string>('arith_if');
   const [hoveredTest, setHoveredTest] = useState<string>('arith_if');
 
@@ -2071,19 +2077,27 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
       </footer>
 
       {/* ── FIXED BOTTOM TERMINAL BAR ── */}
-      <div className="terminal-bar">
-        <div className="terminal-bar-header">
+      <div className={`terminal-bar ${isTerminalCollapsed ? 'collapsed' : ''}`}>
+        <div 
+          className="terminal-bar-header" 
+          onClick={() => setIsTerminalCollapsed(!isTerminalCollapsed)}
+          style={{ cursor: 'pointer', userSelect: 'none' }}
+          title={isTerminalCollapsed ? "Click to expand terminal" : "Click to collapse terminal"}
+        >
           <div className="terminal-bar-left">
             <div className="terminal-dot" style={{ background: '#ff5f56' }}></div>
             <div className="terminal-dot" style={{ background: '#ffbd2e' }}></div>
             <div className="terminal-dot" style={{ background: '#27c93f' }}></div>
             <span className="terminal-title">TERMINAL</span>
+            <span className="terminal-toggle-icon" style={{ marginLeft: '8px', fontSize: '10px', color: 'var(--text-secondary)' }}>
+              {isTerminalCollapsed ? '▲' : '▼'}
+            </span>
             <span className="terminal-session-badge">Session #{terminalSession}</span>
           </div>
           <div className="terminal-bar-center">
             <span className="terminal-bar-path">flang-modernizer — bash</span>
           </div>
-          <div className="terminal-bar-right">
+          <div className="terminal-bar-right" onClick={(e) => e.stopPropagation()}>
             <button className="term-ctrl-btn" title="Clear terminal" onClick={clearTerminal}>
               Clear
             </button>
