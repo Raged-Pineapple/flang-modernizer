@@ -1,0 +1,21 @@
+
+=== Analyzing test/legacy/common_block.f ===
+line 3: [modernize-avoid-common-block] COMMON blocks prevent encapsulation; replace with MODULE variables
+[modernize-avoid-fixed-form] Fixed-form source (column-sensitive) detected; convert to free-form
+
+[Impact Analyzer] Finished Semantic Indexing
+
+[Symbol Index Dump]
+COMMON /physdat/
+  - test/legacy/common_block.f  signature: [REAL(4)|REAL(4)|]
+  OK: Consistent across all 1 file(s). Safe to modernize.
+
+========================================
+  MODERNIZATION IMPACT REPORT
+========================================
+#   RISK      EFFORT FILES  SCORE   CONSTRUCT
+----------------------------------------
+1   SAFE      1      1      1       COMMON /physdat/
+    -> Single-file COMMON block — straightforward to modernize.
+========================================
+Total findings: 1
