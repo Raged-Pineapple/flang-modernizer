@@ -68,37 +68,37 @@ The repository includes an interactive **React + TypeScript + Vite + Glassmorphi
 ### Showcase Gallery
 
 #### 1. Homepage & Dashboard Overview
-![Homepage Dashboard](flang-modernizer/docs/homepage.png)
-![Homepage Features](flang-modernizer/docs/hmpg2.png)
+![Homepage Dashboard](docs/homepage.png)
+![Homepage Features](docs/hmpg2.png)
 These screenshots show the landing page of the Flang Modernizer Web Application. It displays an overview of the LLVM-Flang static analysis suite, including the 9 supported syntactic AST checkers and details about the multi-file semantic safety pass analysis.
 
 #### 2. Single-File Testing Sandbox
-![Single File Sandbox](flang-modernizer/docs/singletests.png)
+![Single File Sandbox](docs/singletests.png)
 This screen displays the single-file regression tests panel where developers can explore predefined legacy Fortran 77 test cases (such as arithmetic IF, computed GOTO, etc.). Clicking any test case loads the legacy code into the viewer and sets it up for analysis.
 
 #### 3. AST Parser and Test Case Analysis
-![AST Node Analysis Graph](flang-modernizer/docs/analysisoftest.png)
+![AST Node Analysis Graph](docs/analysisoftest.png)
 Shows the active parsing process and node traversal graph visualization in the Execute Arena. It tracks the step-by-step syntactic verification of the AST parser, verifying construct scopes and outputs live compiler logs to the bottom terminal panel.
 
 #### 4. Custom Test Editor
-![Custom Test Case Editor](flang-modernizer/docs/customtest.png)
+![Custom Test Case Editor](docs/customtest.png)
 The custom sandbox playground where users can write, paste, edit, and test their own custom Fortran 77 files. It features line numbers, syntax highlighting guidelines, and a drop zone for dragging files directly from the operating system to analyze them instantly.
 
 #### 5. Modernization Report Generator
-![Advisory Report Overview](flang-modernizer/docs/reportgen1.png)
-![Advisory Report Details](flang-modernizer/docs/reportgen2.png)
+![Advisory Report Overview](docs/reportgen1.png)
+![Advisory Report Details](docs/reportgen2.png)
 These images show the interactive, modal-based Modernization Advisory Report generated after a project analysis. It features a print-ready layout showing a safety verdict badge, feasibility scores, categorized diagnostic checks, and a prioritized risk/effort impact matrix.
 
 #### 6. Real-World Case Study
-![Real World Case Study](flang-modernizer/docs/realworldtestcase.png)
+![Real World Case Study](docs/realworldtestcase.png)
 Highlights the Weather Forecast Case Study dashboard built within the web app. This case study demonstrates the multi-file analysis capability of the tool, running checks across shared variables and subroutines.
 
 #### 7. Workspace & Working Directory
-![Real World Working Directory](flang-modernizer/docs/realworldworkingdirectory.png)
+![Real World Working Directory](docs/realworldworkingdirectory.png)
 Shows the multi-file directory viewer structure containing the shared global variables, parameters, and weather simulation modules. It illustrates the real-world scale of the codebase being analyzed by the modernization engine.
 
 #### 8. Semantic Alignment Report
-![Semantic Alignment Report](flang-modernizer/docs/realworldworkingdirectorytestreport.png)
+![Semantic Alignment Report](docs/realworldworkingdirectorytestreport.png)
 Displays the memory offset visualizer for shared `COMMON` blocks (e.g. `/PHYSDAT/`) across `main.f` and `physics.f`. It highlights the detected type/alignment alignment mismatch warning where variable bounds collide, preventing automated refactoring bugs.
 
 ## How to Push to Git/GitHub
