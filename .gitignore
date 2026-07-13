@@ -1,1 +1,10 @@
+node_modules/
 build/
+dist/
+.cache/
+*.o
+*.a
+*.so
+*.log
+__pycache__/
+.DS_Store
