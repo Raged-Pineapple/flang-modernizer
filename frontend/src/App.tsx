@@ -600,7 +600,7 @@ const buildReport = (
 };
 
 export default function App() {
-  const [page, setPage] = useState<'home' | 'tests' | 'weather' | 'github'>('home');
+  const [page, setPage] = useState<'home' | 'tests' | 'weather' | 'github' | 'history'>('home');
   const [testTab, setTestTab] = useState<'available' | 'custom'>('available');
   const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(false);
 
@@ -628,6 +628,47 @@ export default function App() {
   // GitHub States
   const [githubRepoUrl, setGithubRepoUrl] = useState('');
   const [isGithubAnalyzing, setIsGithubAnalyzing] = useState(false);
+
+  // Report History States
+  const [reportHistory, setReportHistory] = useState<ReportData[]>(() => {
+    const stored = localStorage.getItem('flang_modernizer_report_history');
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        console.error('Failed to parse report history:', e);
+      }
+    }
+    return [];
+  });
+
+  // Automatically sync reports to history whenever a new report is generated
+  useEffect(() => {
+    if (currentReport) {
+      setReportHistory(prev => {
+        const exists = prev.some(r => r.title === currentReport.title && r.timestamp === currentReport.timestamp);
+        if (exists) return prev;
+        const updated = [currentReport, ...prev];
+        localStorage.setItem('flang_modernizer_report_history', JSON.stringify(updated));
+        return updated;
+      });
+    }
+  }, [currentReport]);
+
+  const deleteReportFromHistory = (index: number) => {
+    setReportHistory(prev => {
+      const updated = prev.filter((_, i) => i !== index);
+      localStorage.setItem('flang_modernizer_report_history', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const clearAllHistory = () => {
+    if (window.confirm('Are you sure you want to clear all report history?')) {
+      setReportHistory([]);
+      localStorage.removeItem('flang_modernizer_report_history');
+    }
+  };
 
   // Terminal state
   const [terminalLines, setTerminalLines] = useState<TerminalLine[]>([
@@ -1829,6 +1870,15 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
                 GitHub Integration
               </button>
             </li>
+            <li>
+              <button
+                onClick={() => setPage('history')}
+                className="nav-link nav-link-btn"
+                style={{ color: page === 'history' ? 'var(--accent-cyan)' : '', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                History {reportHistory.length > 0 && <span className="nav-badge" style={{ background: 'var(--accent-cyan)', color: '#000', fontSize: '10px', padding: '2px 6px', borderRadius: '10px', fontWeight: 'bold' }}>{reportHistory.length}</span>}
+              </button>
+            </li>
           </ul>
         </div>
       </nav>
@@ -2685,8 +2735,141 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
                 </button>
                 <p className="report-cta-hint">View full analysis report &amp; export as PDF</p>
               </div>
+        </main>
+      )}
+
+      {/* RENDER PAGE: Report History */}
+      {page === 'history' && (
+        <main className="container" style={{ paddingBottom: '80px', paddingTop: '100px' }}>
+          <header className="page-header" style={{ padding: '0 0 32px 0', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h1 className="hero-title" style={{ fontSize: '42px', marginBottom: '12px' }}>
+                Analysis History
+              </h1>
+              <p className="hero-subtitle" style={{ fontSize: '15px', margin: 0 }}>
+                Review, compare, and download previously generated compilation advisory reports.
+              </p>
+            </div>
+            {reportHistory.length > 0 && (
+              <button 
+                onClick={clearAllHistory}
+                className="action-btn-primary" 
+                style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171' }}
+              >
+                Clear History
+              </button>
             )}
-          </div>
+          </header>
+
+          {reportHistory.length === 0 ? (
+            <div className="weather-workspace-grid" style={{ gridTemplateColumns: '1fr' }}>
+              <div className="weather-explorer-card" style={{ padding: '60px 36px', textAlign: 'center' }}>
+                <div style={{ fontSize: '64px', marginBottom: '24px' }}>📜</div>
+                <h2 style={{ fontSize: '22px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '12px' }}>
+                  No Reports in History
+                </h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '14px', maxWidth: '480px', margin: '0 auto 32px auto' }}>
+                  Your compiled modernization advisory reports will automatically appear here. Run local test cases, write custom code, or import remote GitHub repositories to build your history stack.
+                </p>
+                <button 
+                  onClick={() => setPage('tests')}
+                  className="action-btn-primary"
+                  style={{ padding: '0 24px', height: '46px', borderRadius: '8px', cursor: 'pointer' }}
+                >
+                  Start Scanning Code
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="weather-workspace-grid" style={{ gridTemplateColumns: '1fr', gap: '20px' }}>
+              <div className="weather-explorer-card" style={{ padding: '24px 32px' }}>
+                <div className="table-responsive" style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', color: 'var(--text-main)' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                        <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--text-muted)', fontWeight: 600 }}>Timestamp</th>
+                        <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--text-muted)', fontWeight: 600 }}>Report Title / Category</th>
+                        <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--text-muted)', fontWeight: 600 }}>Files Scanned</th>
+                        <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--text-muted)', fontWeight: 600 }}>Verdict</th>
+                        <th style={{ textAlign: 'center', padding: '12px 16px', color: 'var(--text-muted)', fontWeight: 600 }}>Score</th>
+                        <th style={{ textAlign: 'right', padding: '12px 16px', color: 'var(--text-muted)', fontWeight: 600 }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reportHistory.map((report, idx) => {
+                        const verdictColor = report.verdict === 'safe' ? '#10b981' : report.verdict === 'review' ? '#f59e0b' : '#ef4444';
+                        const scoreColor = report.feasibilityScore >= 80 ? 'var(--accent-emerald)' : report.feasibilityScore >= 50 ? 'var(--accent-orange)' : 'var(--accent-crimson)';
+                        
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)', verticalAlign: 'middle' }}>
+                            <td style={{ padding: '16px', whiteSpace: 'nowrap', fontSize: '13px', color: 'var(--text-muted)' }}>
+                              Analyse {report.timestamp}
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div style={{ fontWeight: 600, fontSize: '14px' }}>{report.title}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                Source: {report.phase}
+                              </div>
+                            </td>
+                            <td style={{ padding: '16px', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13px' }} title={report.files.join(', ')}>
+                              📁 {report.files.join(', ')}
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <span style={{ 
+                                display: 'inline-block',
+                                padding: '4px 10px', 
+                                borderRadius: '4px', 
+                                fontSize: '11px', 
+                                fontWeight: 700, 
+                                background: `${verdictColor}1A`, 
+                                color: verdictColor,
+                                border: `1px solid ${verdictColor}33`,
+                                textTransform: 'uppercase'
+                              }}>
+                                {report.verdict === 'safe' ? 'Safe' : report.verdict === 'review' ? 'Review Needed' : 'Unsafe'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '16px', textAlign: 'center', fontWeight: 'bold', fontSize: '16px', color: scoreColor }}>
+                              {report.feasibilityScore}
+                            </td>
+                            <td style={{ padding: '16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                <button
+                                  className="action-btn-primary"
+                                  onClick={() => {
+                                    setCurrentReport(report);
+                                    setShowReportModal(true);
+                                  }}
+                                  style={{ padding: '6px 14px', height: '32px', fontSize: '12px', borderRadius: '4px' }}
+                                >
+                                  Open
+                                </button>
+                                <button
+                                  onClick={() => deleteReportFromHistory(idx)}
+                                  style={{ 
+                                    padding: '6px 12px', 
+                                    height: '32px', 
+                                    fontSize: '12px', 
+                                    borderRadius: '4px', 
+                                    background: 'rgba(239, 68, 68, 0.05)', 
+                                    border: '1px solid rgba(239, 68, 68, 0.1)', 
+                                    color: '#f87171',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       )}
 
