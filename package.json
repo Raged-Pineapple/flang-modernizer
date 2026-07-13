@@ -1,0 +1,31 @@
+{
+  "name": "flang-modernizer",
+  "version": "1.0.0",
+  "description": "A multi-phase Fortran legacy code static analysis and modernization advisor, built directly on the **LLVM 20 Flang compiler frontend**.",
+  "main": "index.js",
+  "directories": {
+    "test": "test",
+    "doc": "docs",
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Raged-Pineapple/flang-modernizer.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Raged-Pineapple/flang-modernizer/issues"
+  },
+  "homepage": "https://github.com/Raged-Pineapple/flang-modernizer#readme",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "uuid": "^14.0.1"
+  }
+}

@@ -1056,55 +1056,176 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
     }
   };
 
-  // Trigger the full screen parse tree transition animation + stream terminal output
-  const triggerOverlayAnimation = (files: string[], testKey: string = '') => {
-    setShowOverlay(true);
-    setOverlayStep(1);
-    setProgressVal(0);
-    setActiveNode('');
-    setCurrentReport(null); // reset stale report
+  // Helper to split and prepare files for the API payload
+  const prepareFilesPayload = (files: string[], testKey: string) => {
+    const payload: { name: string; content: string }[] = [];
 
-    const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
-    const fileList = files.join(', ');
-
-    // Initial terminal burst
-    appendTerminal([
-      { text: ``, type: 'muted' },
-      { text: `[${ts}] $ flang-modernizer analyze ${fileList}`, type: 'cmd' },
-      { text: `Ingesting ${files.length} file(s): ${fileList}`, type: 'info' },
-      { text: `Reading source buffers...`, type: 'muted' },
-    ]);
-
-    // Perform static analysis on custom files dynamically
-    const diags: TerminalLine[] = [];
-    let isAnyCustom = false;
-    const isWeatherSim = files.includes('main.f') && files.includes('physics.f');
-
-    if (isWeatherSim) {
-      diags.push(
-        { text: `  ✗ grid_setup.f:12 [modernize-avoid-entry] ENTRY statement INITGRID is obsolete in Fortran 2018`, type: 'error' },
-        { text: `  ✗ main.f:20 [modernize-avoid-arithmetic-if] Arithmetic IF deleted in F2018; replace with IF-THEN-ELSE`, type: 'error' },
-        { text: `  ✗ physics.f:24 [modernize-avoid-arithmetic-if] Arithmetic IF deleted in F2018; replace with IF-THEN-ELSE`, type: 'error' },
-        { text: `  ✗ main.f:5 [modernize-require-implicit-none] IMPLICIT typing found; add IMPLICIT NONE`, type: 'warn' },
-        { text: `  ✗ physics.f:8 [modernize-avoid-common-block] COMMON block /PHYSDAT/ layout mismatch detected!`, type: 'error' },
-        { text: `  *** ERROR: Offset alignment collision on block /PHYSDAT/ between main.f and physics.f!`, type: 'error' },
-        { text: `    main.f:    [INTEGER, INTEGER, REAL, REAL, INTEGER] (size: 20B)`, type: 'muted' },
-        { text: `    physics.f: [REAL, REAL, INTEGER, INTEGER, INTEGER] (size: 20B)`, type: 'muted' },
-        { text: `    Variable OMEGA (Real) at offset 0B in physics.f overlaps NX (Integer) at offset 0B in main.f!`, type: 'warn' },
-        { text: `    Variable TOLR (Real) at offset 4B in physics.f overlaps NY (Integer) at offset 4B in main.f!`, type: 'warn' },
-        { text: `    Variable NX (Integer) at offset 8B in physics.f overlaps OMEGA (Real) at offset 8B in main.f!`, type: 'warn' },
-        { text: `    Variable NY (Integer) at offset 12B in physics.f overlaps TOLR (Real) at offset 12B in main.f!`, type: 'warn' },
-        { text: `    Automatic modernization BLOCKED: compile safety hazard detected.`, type: 'error' }
-      );
+    if (testKey === 'weather') {
+      Object.values(weatherFiles).forEach(f => {
+        payload.push({ name: f.name, content: f.code });
+      });
+    } else if (testKey === 'multi_common') {
+      const code = testCases.multi_common.code;
+      const parts = code.split(/! === (common\d+\.f) ===/);
+      for (let i = 1; i < parts.length; i += 2) {
+        const fileName = parts[i];
+        const fileCode = parts[i + 1] ? parts[i + 1].trim() : '';
+        payload.push({ name: fileName, content: fileCode });
+      }
+    } else if (testKey && testCases[testKey]) {
+      payload.push({ name: testCases[testKey].name, content: testCases[testKey].code });
     } else {
       files.forEach(f => {
         const customFile = Object.values(customFiles).find(cf => cf.name === f);
         if (customFile) {
-          isAnyCustom = true;
-          diags.push(...analyzeCustomCode(customFile.name, customFile.code));
+          payload.push({ name: customFile.name, content: customFile.code });
         }
       });
     }
+    return payload;
+  };
+
+  // Helper to build a structured report from live backend stdout
+  const buildReportFromBackend = (
+    stdout: string,
+    files: string[],
+    testKey: string,
+    customFilesMap: Record<string, CustomFile>
+  ): ReportData => {
+    const ts = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+    const isWeatherSim = testKey === 'weather' || (files.includes('main.f') && files.includes('physics.f'));
+
+    if (isWeatherSim) {
+      return buildReport(files, testKey, customFilesMap);
+    }
+
+    const lines = stdout.split('\n');
+    const diagnostics: ReportDiagnostic[] = [];
+    let currentFile = files[0] || 'unknown.f';
+
+    lines.forEach(line => {
+      const analMatch = line.match(/===\s*Analyzing\s*(.*?)\s*===/);
+      if (analMatch) {
+        currentFile = analMatch[1].split('/').pop() || analMatch[1];
+        return;
+      }
+
+      const lineDiagMatch = line.match(/^line\s+(\d+):\s*\[(.*?)\]\s*(.*)/);
+      if (lineDiagMatch) {
+        diagnostics.push({
+          file: currentFile,
+          line: lineDiagMatch[1],
+          rule: lineDiagMatch[2],
+          message: lineDiagMatch[3],
+          severity: 'error'
+        });
+        return;
+      }
+
+      const fileDiagMatch = line.match(/^\[(.*?)\]\s*(.*)/);
+      if (fileDiagMatch) {
+        diagnostics.push({
+          file: currentFile,
+          line: '1',
+          rule: fileDiagMatch[1],
+          message: fileDiagMatch[2],
+          severity: 'warning'
+        });
+        return;
+      }
+    });
+
+    let verdict: 'safe' | 'review' | 'unsafe' = 'safe';
+    let feasibilityScore = 95;
+
+    if (stdout.includes('*** WARNING: Inconsistent declarations!') || stdout.includes('UNSAFE')) {
+      verdict = 'unsafe';
+      feasibilityScore = 32;
+    } else if (diagnostics.some(d => d.rule.includes('equivalence') || d.rule.includes('entry') || d.rule.includes('assumed-size') || d.severity === 'warning')) {
+      verdict = 'review';
+      feasibilityScore = 68;
+    } else if (diagnostics.length > 0) {
+      verdict = 'safe';
+      feasibilityScore = 85;
+    }
+
+    const impactMap: Record<string, { check: string; risk: 'safe' | 'caution' | 'unsafe'; effort: string; files: Set<string>; score: number }> = {};
+    
+    diagnostics.forEach(d => {
+      let checkName = d.rule.replace('modernize-avoid-', '').replace('modernize-require-', '').replace('-', ' ');
+      checkName = checkName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
+      const risk = d.severity === 'error' ? (verdict === 'unsafe' ? 'unsafe' : 'caution') : 'safe';
+      const effort = d.rule.includes('common') || d.rule.includes('entry') ? 'COMPLEX' : d.rule.includes('goto') || d.rule.includes('implicit') ? 'MODERATE' : 'TRIVIAL';
+      const key = d.rule;
+
+      if (!impactMap[key]) {
+        impactMap[key] = {
+          check: checkName,
+          risk: risk as any,
+          effort,
+          files: new Set<string>(),
+          score: 0
+        };
+      }
+      impactMap[key].files.add(d.file);
+    });
+
+    const impactTable = Object.values(impactMap).map(item => {
+      const fileCount = item.files.size;
+      const riskFactor = item.risk === 'unsafe' ? 3 : item.risk === 'caution' ? 2 : 1;
+      const effortFactor = item.effort === 'COMPLEX' ? 3 : item.effort === 'MODERATE' ? 2 : 1;
+      return {
+        check: item.check,
+        risk: item.risk,
+        effort: item.effort,
+        files: fileCount,
+        score: riskFactor * fileCount * effortFactor
+      };
+    });
+
+    const summary = verdict === 'unsafe'
+      ? `An unsafe global declaration warning or type alignment conflict was detected across the source files. Manual intervention is required to realign shared definitions.`
+      : diagnostics.length > 0
+        ? `Analysis complete. Detected ${diagnostics.length} modernization target(s) across ${files.length} file(s).`
+        : `No legacy anti-patterns were detected. Your code complies with modern Fortran standards.`;
+
+    const recommendation = verdict === 'unsafe'
+      ? 'Automated refactoring is blocked due to safety warnings. Resolve layout inconsistencies in COMMON block symbols across translation units.'
+      : verdict === 'review'
+        ? 'Review the flagged constructs manually before scheduling automation passes.'
+        : 'All issues are safe to automate. Run the modernizer advisor with --apply-fixes to update your source files.';
+
+    return {
+      title: `Flang Modernizer — Live Compilation Advisory Report`,
+      files,
+      timestamp: ts,
+      verdict,
+      feasibilityScore,
+      phase: files.length > 1 ? 'Multi-File Semantic Analysis' : 'Single-File AST Analysis',
+      diagnostics,
+      impactTable,
+      summary,
+      recommendation
+    };
+  };
+
+  // Run overlay animation with live C++ backend results
+  const runBackendAnimation = (stdout: string, stderr: string, files: string[], testKey: string) => {
+    const lines = stdout.split('\n');
+    const parsedDiags: TerminalLine[] = [];
+    
+    lines.forEach(l => {
+      if (l.trim() === '') return;
+      if (l.startsWith('===')) {
+        parsedDiags.push({ text: l, type: 'info' });
+      } else if (l.includes('[modernize-') || l.includes('*** WARNING') || l.includes('*** ERROR') || l.includes('collision')) {
+        const isError = l.toLowerCase().includes('error') || l.toLowerCase().includes('warning') || l.toLowerCase().includes('unsafe') || l.includes('***');
+        parsedDiags.push({ text: '  ' + l.trim(), type: isError ? 'error' : 'warn' });
+      } else {
+        parsedDiags.push({ text: '  ' + l.trim(), type: 'muted' });
+      }
+    });
 
     let prg = 0;
     const interval1 = setInterval(() => {
@@ -1113,7 +1234,111 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
       if (prg >= 25) {
         clearInterval(interval1);
 
-        // Step 2: Lexer
+        setOverlayStep(2);
+        setActiveNode('prog');
+        appendTerminal([
+          { text: `[Lexer]    Tokenizing source...`, type: 'info' },
+          { text: `[Lexer]    Processing source layout structure...`, type: 'muted' },
+          { text: `[Parser]   Building cooked character stream...`, type: 'muted' },
+        ]);
+
+        const interval2 = setInterval(() => {
+          prg += 5;
+          setProgressVal(prg);
+          if (prg === 40) {
+            setActiveNode('main');
+            appendTerminal([
+              { text: `[Parser]   Program unit identified`, type: 'info' },
+              { text: `[Parser]   Entering statement list scope...`, type: 'muted' },
+            ]);
+          }
+          if (prg >= 50) {
+            clearInterval(interval2);
+
+            setOverlayStep(3);
+            setActiveNode('stmt');
+            appendTerminal([
+              { text: `[AST]      Parse tree construction complete`, type: 'success' },
+              { text: `[AST]      Walking Statement nodes...`, type: 'info' },
+            ]);
+
+            const interval3 = setInterval(() => {
+              prg += 5;
+              setProgressVal(prg);
+              if (prg === 65) {
+                setActiveNode('pat');
+                appendTerminal([
+                  { text: `[Visitor]  Traversing AstNode leaf patterns...`, type: 'muted' },
+                ]);
+              }
+              if (prg >= 75) {
+                clearInterval(interval3);
+
+                setOverlayStep(4);
+                setActiveNode('done');
+
+                appendTerminal([
+                  { text: `[Semantic] Cross-file COMMON block analysis...`, type: 'info' },
+                  { text: `[Semantic] Safety scoring complete`, type: 'success' },
+                  { text: `[Backend]  Compiler stdout:`, type: 'info' },
+                  ...parsedDiags
+                ]);
+
+                if (stderr.trim() !== '') {
+                  appendTerminal([
+                    { text: `[Backend]  Compiler stderr:`, type: 'error' },
+                    { text: stderr, type: 'error' }
+                  ]);
+                }
+
+                const interval4 = setInterval(() => {
+                  prg += 5;
+                  setProgressVal(prg);
+                  if (prg >= 100) {
+                    clearInterval(interval4);
+
+                    const isWeatherSim = testKey === 'weather' || (files.includes('main.f') && files.includes('physics.f'));
+                    const isReviewNeeded = parsedDiags.some(d => d.type === 'error' || d.type === 'warn');
+
+                    appendTerminal([
+                      { text: `[Report]   Modernization effort: ${isReviewNeeded ? 'MODERATE' : 'TRIVIAL'}`, type: 'info' },
+                      { text: `[Report]   Safety verdict: ${isReviewNeeded ? 'REVIEW NEEDED' : 'SAFE'}`, type: 'warn' },
+                      { text: `[Done]     Analysis complete ✓`, type: 'success' },
+                      { text: ``, type: 'muted' },
+                    ]);
+                    setOverlayStep(5);
+                    if (isWeatherSim) {
+                      setWeatherAnalyzed(true);
+                    }
+                    setCurrentReport(buildReportFromBackend(stdout, files, testKey, customFiles));
+                    setTimeout(() => {
+                      setShowOverlay(false);
+                    }, 800);
+                  }
+                }, 300);
+              }
+            }, 400);
+          }
+        }, 300);
+      }
+    }, 300);
+  };
+
+  // Run mock overlay animation (browser-side simulation fallback)
+  const runMockSimulation = (
+    files: string[],
+    testKey: string,
+    diags: TerminalLine[],
+    isWeatherSim: boolean,
+    isAnyCustom: boolean
+  ) => {
+    let prg = 0;
+    const interval1 = setInterval(() => {
+      prg += 5;
+      setProgressVal(prg);
+      if (prg >= 25) {
+        clearInterval(interval1);
+
         setOverlayStep(2);
         setActiveNode('prog');
         appendTerminal([
@@ -1135,7 +1360,6 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
           if (prg >= 50) {
             clearInterval(interval2);
 
-            // Step 3: AST
             setOverlayStep(3);
             setActiveNode('stmt');
             appendTerminal([
@@ -1155,7 +1379,6 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
               if (prg >= 75) {
                 clearInterval(interval3);
 
-                // Step 4: Semantic
                 setOverlayStep(4);
                 setActiveNode('done');
 
@@ -1191,7 +1414,6 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
                     if (isWeatherSim) {
                       setWeatherAnalyzed(true);
                     }
-                    // Build and store the structured report
                     setCurrentReport(buildReport(files, testKey, customFiles));
                     setTimeout(() => {
                       setShowOverlay(false);
@@ -1204,6 +1426,88 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
         }, 300);
       }
     }, 300);
+  };
+
+  // Trigger the full screen parse tree transition animation + stream terminal output
+  const triggerOverlayAnimation = (files: string[], testKey: string = '') => {
+    setShowOverlay(true);
+    setOverlayStep(1);
+    setProgressVal(0);
+    setActiveNode('');
+    setCurrentReport(null);
+
+    const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const fileList = files.join(', ');
+
+    appendTerminal([
+      { text: ``, type: 'muted' },
+      { text: `[${ts}] $ flang-modernizer analyze ${fileList}`, type: 'cmd' },
+      { text: `Ingesting ${files.length} file(s): ${fileList}`, type: 'info' },
+      { text: `Reading source buffers...`, type: 'muted' },
+    ]);
+
+    const diags: TerminalLine[] = [];
+    let isAnyCustom = false;
+    const isWeatherSim = testKey === 'weather' || (files.includes('main.f') && files.includes('physics.f'));
+
+    if (isWeatherSim) {
+      diags.push(
+        { text: `  ✗ grid_setup.f:12 [modernize-avoid-entry] ENTRY statement INITGRID is obsolete in Fortran 2018`, type: 'error' },
+        { text: `  ✗ main.f:20 [modernize-avoid-arithmetic-if] Arithmetic IF deleted in F2018; replace with IF-THEN-ELSE`, type: 'error' },
+        { text: `  ✗ physics.f:24 [modernize-avoid-arithmetic-if] Arithmetic IF deleted in F2018; replace with IF-THEN-ELSE`, type: 'error' },
+        { text: `  ✗ main.f:5 [modernize-require-implicit-none] IMPLICIT typing found; add IMPLICIT NONE`, type: 'warn' },
+        { text: `  ✗ physics.f:8 [modernize-avoid-common-block] COMMON block /PHYSDAT/ layout mismatch detected!`, type: 'error' },
+        { text: `  *** ERROR: Offset alignment collision on block /PHYSDAT/ between main.f and physics.f!`, type: 'error' },
+        { text: `    main.f:    [INTEGER, INTEGER, REAL, REAL, INTEGER] (size: 20B)`, type: 'muted' },
+        { text: `    physics.f: [REAL, REAL, INTEGER, INTEGER, INTEGER] (size: 20B)`, type: 'muted' },
+        { text: `    Variable OMEGA (Real) at offset 0B in physics.f overlaps NX (Integer) at offset 0B in main.f!`, type: 'warn' },
+        { text: `    Variable TOLR (Real) at offset 4B in physics.f overlaps NY (Integer) at offset 4B in main.f!`, type: 'warn' },
+        { text: `    Variable NX (Integer) at offset 8B in physics.f overlaps OMEGA (Real) at offset 8B in main.f!`, type: 'warn' },
+        { text: `    Variable NY (Integer) at offset 12B in physics.f overlaps TOLR (Real) at offset 12B in main.f!`, type: 'warn' },
+        { text: `    Automatic modernization BLOCKED: compile safety hazard detected.`, type: 'error' }
+      );
+    } else {
+      files.forEach(f => {
+        const customFile = Object.values(customFiles).find(cf => cf.name === f);
+        if (customFile) {
+          isAnyCustom = true;
+          diags.push(...analyzeCustomCode(customFile.name, customFile.code));
+        }
+      });
+    }
+
+    // Prepare payload and connect to live C++ backend via API server
+    const payload = prepareFilesPayload(files, testKey);
+
+    fetch('http://localhost:5000/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: payload })
+    })
+    .then(res => {
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return res.json();
+    })
+    .then(data => {
+      if (data.success) {
+        appendTerminal([
+          { text: `[Backend]  Successfully connected to compiler API.`, type: 'success' }
+        ]);
+        runBackendAnimation(data.stdout, data.stderr, files, testKey);
+      } else {
+        throw new Error(data.error || 'Compilation check failed');
+      }
+    })
+    .catch(err => {
+      console.warn('Backend API connection failed, falling back to simulation:', err);
+      appendTerminal([
+        { text: `[Backend]  Connection failed: ${err.message}`, type: 'error' },
+        { text: `[Backend]  Running in sandbox simulation mode...`, type: 'warn' },
+      ]);
+      runMockSimulation(files, testKey, diags, isWeatherSim, isAnyCustom);
+    });
   };
 
   const problems = [
