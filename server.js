@@ -145,97 +145,95 @@ app.get('/api/analyze-github', async (req, res) => {
   console.log(`[${new Date().toISOString()}] GET /api/analyze-github - Target: ${repoUrl}`);
   sendProgress('progress', `Verifying remote repository existence: ${repoUrl}`);
 
-  const git = simpleGit();
-  try {
-    await git.listRemote([repoUrl]);
-    sendProgress('progress', 'Repository verified successfully.');
-  } catch (err) {
-    console.error('Verification failed:', err.message);
-    sendProgress('error', `Repository verification failed. Please check that the URL is correct and public.`);
-    return res.end();
-  }
-
-  const tempDirName = `flang-git-${uuidv4()}`;
-  const tempDirPath = path.join(os.tmpdir(), tempDirName);
-
-  try {
-    sendProgress('progress', 'Cloning remote repository (shallow depth=1)...');
-    await git.clone(repoUrl, tempDirPath, ['--depth', '1']);
-    sendProgress('progress', 'Cloning complete. Scanning for Fortran files...');
-
-    const filePaths = walkDirectory(tempDirPath);
-    if (filePaths.length === 0) {
-      sendProgress('error', 'No Fortran source files found in this repository.');
-      try {
-        fs.rmSync(tempDirPath, { recursive: true, force: true });
-      } catch (_) {}
+  // 1. Verify repo exists in WSL
+  execFile('wsl', ['-d', 'Ubuntu', '-e', 'git', 'ls-remote', repoUrl], (verifErr) => {
+    if (verifErr) {
+      console.error('Verification failed:', verifErr.message);
+      sendProgress('error', `Repository verification failed. Please check that the URL is correct and public.`);
       return res.end();
     }
 
-    sendProgress('progress', `Discovered ${filePaths.length} Fortran file(s):`);
-    filePaths.forEach(fp => {
-      sendProgress('file_found', path.relative(tempDirPath, fp));
-    });
+    sendProgress('progress', 'Repository verified successfully.');
 
-    let execCmd = '';
-    let execArgs = [];
+    const tempDirName = `flang-git-${uuidv4()}`;
+    const wslTempDirPath = `/tmp/${tempDirName}`;
 
-    if (IS_WINDOWS) {
-      const wslPaths = filePaths.map(p => {
-        return p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, drive) => `/mnt/${drive.toLowerCase()}`);
-      });
-      execCmd = 'wsl';
-      execArgs = [
-        '-d', 'Ubuntu',
-        '-e', '/home/dell/flang-modernizer/build/tools/flang-modernizer/flang-modernizer',
-        ...wslPaths
-      ];
-    } else {
-      execCmd = '/home/dell/flang-modernizer/build/tools/flang-modernizer/flang-modernizer';
-      execArgs = filePaths;
-    }
-
-    sendProgress('progress', 'Starting compiler static analysis on translation units...');
-    console.log(`  Running remote analysis: ${execCmd} ${execArgs.join(' ')}`);
-
-    execFile(execCmd, execArgs, { timeout: 15000 }, (error, stdout, stderr) => {
-      console.log(`  Execution completed. Exit Code: ${error ? (error.code || 1) : 0}`);
-
-      try {
-        fs.rmSync(tempDirPath, { recursive: true, force: true });
-      } catch (cleanupErr) {
-        console.error('Failed to clean up temp directory:', cleanupErr);
-      }
-
-      if (error && error.code === 'ENOENT') {
-        sendProgress('error', 'Compiler binary not found in WSL.');
+    // 2. Clone in WSL
+    sendProgress('progress', 'Cloning remote repository in WSL (shallow depth=1)...');
+    execFile('wsl', ['-d', 'Ubuntu', '-e', 'git', 'clone', '--depth', '1', repoUrl, wslTempDirPath], (cloneErr) => {
+      if (cloneErr) {
+        console.error('Clone failed:', cloneErr.message);
+        sendProgress('error', `Git clone failed inside WSL: ${cloneErr.message}`);
         return res.end();
       }
 
-      // Strip Windows paths out of the stdout to make it look clean
-      const cleanedStdout = stdout 
-        ? stdout.replaceAll(tempDirPath.replace(/\\/g, '/'), '').replaceAll(tempDirPath, '') 
-        : '';
-      const baseNames = filePaths.map(fp => path.basename(fp));
+      sendProgress('progress', 'Cloning complete. Scanning for Fortran files in WSL...');
 
-      sendProgress('complete', 'Analysis complete.', {
-        stdout: cleanedStdout || '',
-        stderr: stderr || '',
-        files: baseNames
+      // 3. Find files recursively in WSL
+      execFile('wsl', ['-d', 'Ubuntu', '-e', 'find', wslTempDirPath, '-type', 'f'], (findErr, findStdout) => {
+        if (findErr) {
+          console.error('Find failed:', findErr.message);
+          sendProgress('error', `Failed to scan files in WSL: ${findErr.message}`);
+          execFile('wsl', ['-d', 'Ubuntu', '-e', 'rm', '-rf', wslTempDirPath]);
+          return res.end();
+        }
+
+        const lines = findStdout.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        const wslPaths = lines.filter(file => {
+          const ext = path.extname(file).toLowerCase();
+          return ['.f', '.f90', '.f77', '.for', '.f95', '.f03', '.f08'].includes(ext);
+        });
+
+        if (wslPaths.length === 0) {
+          sendProgress('error', 'No Fortran source files found in this repository.');
+          execFile('wsl', ['-d', 'Ubuntu', '-e', 'rm', '-rf', wslTempDirPath]);
+          return res.end();
+        }
+
+        sendProgress('progress', `Discovered ${wslPaths.length} Fortran file(s):`);
+        wslPaths.forEach(fp => {
+          sendProgress('file_found', path.relative(wslTempDirPath, fp).replace(/\\/g, '/'));
+        });
+
+        // 4. Run compiler in WSL
+        sendProgress('progress', 'Starting compiler static analysis on translation units...');
+        const compilerBinary = '/home/dell/flang-modernizer/build/tools/flang-modernizer/flang-modernizer';
+        
+        console.log(`  Running remote WSL analysis on ${wslPaths.length} files`);
+        
+        execFile('wsl', [
+          '-d', 'Ubuntu',
+          '-e', compilerBinary,
+          ...wslPaths
+        ], { timeout: 25000 }, (compilerErr, stdout, stderr) => {
+          console.log(`  Execution completed. Exit Code: ${compilerErr ? (compilerErr.code || 1) : 0}`);
+
+          // 5. Clean up temp folder in WSL
+          execFile('wsl', ['-d', 'Ubuntu', '-e', 'rm', '-rf', wslTempDirPath], (rmErr) => {
+            if (rmErr) console.error('WSL Cleanup failed:', rmErr.message);
+          });
+
+          if (compilerErr && compilerErr.code === 'ENOENT') {
+            sendProgress('error', 'Compiler binary not found in WSL.');
+            return res.end();
+          }
+
+          // Strip absolute WSL paths out of stdout for clean display
+          const cleanedStdout = stdout 
+            ? stdout.replaceAll(wslTempDirPath, '') 
+            : '';
+          const baseNames = wslPaths.map(fp => path.basename(fp));
+
+          sendProgress('complete', 'Analysis complete.', {
+            stdout: cleanedStdout || '',
+            stderr: stderr || '',
+            files: baseNames
+          });
+          res.end();
+        });
       });
-      res.end();
     });
-
-  } catch (err) {
-    try {
-      if (fs.existsSync(tempDirPath)) {
-        fs.rmSync(tempDirPath, { recursive: true, force: true });
-      }
-    } catch (_) {}
-    console.error('GitHub API error:', err);
-    sendProgress('error', `Internal Server Error: ${err.message}`);
-    res.end();
-  }
+  });
 });
 
 app.listen(PORT, () => {
