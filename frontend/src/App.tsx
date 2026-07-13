@@ -600,7 +600,7 @@ const buildReport = (
 };
 
 export default function App() {
-  const [page, setPage] = useState<'home' | 'tests' | 'weather'>('home');
+  const [page, setPage] = useState<'home' | 'tests' | 'weather' | 'github'>('home');
   const [testTab, setTestTab] = useState<'available' | 'custom'>('available');
   const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(false);
 
@@ -625,6 +625,10 @@ export default function App() {
   const [activeNode, setActiveNode] = useState<string>(''); // 'prog', 'main', 'stmt', 'pat'
   const [progressVal, setProgressVal] = useState(0);
 
+  // GitHub States
+  const [githubRepoUrl, setGithubRepoUrl] = useState('');
+  const [isGithubAnalyzing, setIsGithubAnalyzing] = useState(false);
+
   // Terminal state
   const [terminalLines, setTerminalLines] = useState<TerminalLine[]>([
     { text: 'Flang Modernizer v1.0.0 — LLVM Flang Static Analysis Engine', type: 'muted' },
@@ -632,6 +636,139 @@ export default function App() {
   ]);
   const [terminalSession, setTerminalSession] = useState(1);
   const terminalRef = { current: null as HTMLDivElement | null };
+
+  const runGithubAnalysis = (repoUrl: string) => {
+    if (!repoUrl || !repoUrl.trim().startsWith('http')) {
+      alert('Please enter a valid GitHub repository URL.');
+      return;
+    }
+
+    setIsGithubAnalyzing(true);
+    setShowOverlay(true);
+    setOverlayStep(1);
+    setProgressVal(5);
+    setActiveNode('');
+    setCurrentReport(null);
+
+    const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+    appendTerminal([
+      { text: ``, type: 'muted' },
+      { text: `[${ts}] $ flang-modernizer import-git ${repoUrl}`, type: 'cmd' },
+    ]);
+
+    const eventSource = new EventSource(`http://localhost:5000/api/analyze-github?repoUrl=${encodeURIComponent(repoUrl.trim())}`);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'progress') {
+          appendTerminal([{ text: `[System] ${data.message}`, type: 'info' }]);
+          
+          if (data.message.includes('Verifying')) {
+            setOverlayStep(1);
+            setProgressVal(10);
+            setActiveNode('');
+          } else if (data.message.includes('Cloning')) {
+            setOverlayStep(1);
+            setProgressVal(25);
+            setActiveNode('prog');
+          } else if (data.message.includes('Scanning') || data.message.includes('Cloning complete')) {
+            setOverlayStep(2);
+            setProgressVal(45);
+            setActiveNode('main');
+          } else if (data.message.includes('compiler static analysis')) {
+            setOverlayStep(4);
+            setProgressVal(75);
+            setActiveNode('stmt');
+          }
+        } 
+        else if (data.type === 'file_found') {
+          appendTerminal([{ text: `  ↳ Found file: ${data.message}`, type: 'muted' }]);
+          setActiveNode('pat');
+        } 
+        else if (data.type === 'complete') {
+          appendTerminal([
+            { text: `[Backend] Analysis output captured successfully ✓`, type: 'success' },
+          ]);
+
+          const stdout = data.data.stdout;
+          const stderr = data.data.stderr;
+          const filesList = data.data.files;
+
+          const parsedDiags: TerminalLine[] = [];
+          stdout.split('\n').forEach((l: string) => {
+            if (l.trim() === '') return;
+            if (l.startsWith('===')) {
+              parsedDiags.push({ text: l, type: 'info' });
+            } else if (l.includes('[modernize-') || l.includes('*** WARNING') || l.includes('*** ERROR') || l.includes('collision')) {
+              const isError = l.toLowerCase().includes('error') || l.toLowerCase().includes('warning') || l.toLowerCase().includes('unsafe') || l.includes('***');
+              parsedDiags.push({ text: '  ' + l.trim(), type: isError ? 'error' : 'warn' });
+            } else {
+              parsedDiags.push({ text: '  ' + l.trim(), type: 'muted' });
+            }
+          });
+
+          appendTerminal([
+            { text: `[Backend]  Compiler stdout:`, type: 'info' },
+            ...parsedDiags
+          ]);
+
+          if (stderr.trim() !== '') {
+            appendTerminal([
+              { text: `[Backend]  Compiler stderr:`, type: 'error' },
+              { text: stderr, type: 'error' }
+            ]);
+          }
+
+          setOverlayStep(5);
+          setProgressVal(100);
+          setActiveNode('done');
+
+          appendTerminal([
+            { text: `[Done]     Analysis complete ✓`, type: 'success' },
+            { text: ``, type: 'muted' },
+          ]);
+
+          setCurrentReport(buildReportFromBackend(stdout, filesList, '', customFiles));
+          
+          setTimeout(() => {
+            setShowOverlay(false);
+            setIsGithubAnalyzing(false);
+            setShowReportModal(true);
+          }, 1000);
+
+          eventSource.close();
+        } 
+        else if (data.type === 'error') {
+          appendTerminal([
+            { text: `[Error]    ${data.message}`, type: 'error' },
+            { text: `[System]   Analysis aborted.`, type: 'error' },
+          ]);
+          eventSource.close();
+          setTimeout(() => {
+            setShowOverlay(false);
+            setIsGithubAnalyzing(false);
+          }, 1500);
+        }
+      } catch (err: any) {
+        console.error('Error parsing EventSource data:', err);
+        eventSource.close();
+        setShowOverlay(false);
+        setIsGithubAnalyzing(false);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.error('EventSource error:', err);
+      appendTerminal([{ text: `[Error] Connection to GitHub compiler bridge failed.`, type: 'error' }]);
+      eventSource.close();
+      setTimeout(() => {
+        setShowOverlay(false);
+        setIsGithubAnalyzing(false);
+      }, 1500);
+    };
+  };
 
   // Custom Test Case States
   const [customFiles, setCustomFiles] = useState<Record<string, CustomFile>>(() => {
@@ -1683,6 +1820,15 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
                 Weather Case Study
               </button>
             </li>
+            <li>
+              <button
+                onClick={() => setPage('github')}
+                className="nav-link nav-link-btn"
+                style={{ color: page === 'github' ? 'var(--accent-cyan)' : '' }}
+              >
+                GitHub Integration
+              </button>
+            </li>
           </ul>
         </div>
       </nav>
@@ -2441,6 +2587,82 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
               </div>
             </div>
           )}
+        </main>
+      )}
+
+      {/* RENDER PAGE: GitHub Integration */}
+      {page === 'github' && (
+        <main className="container" style={{ paddingBottom: '80px', paddingTop: '100px' }}>
+          <header className="page-header" style={{ padding: '0 0 32px 0', textAlign: 'left' }}>
+            <h1 className="hero-title" style={{ fontSize: '42px', marginBottom: '12px' }}>
+              GitHub Workspace Integration
+            </h1>
+            <p className="hero-subtitle" style={{ fontSize: '15px', margin: 0 }}>
+              Connect and verify a remote repository containing a legacy Fortran codebase.
+              The advisor will scan all translation units recursively and build an overall semantic safety report.
+            </p>
+          </header>
+
+          <div className="weather-workspace-grid" style={{ gridTemplateColumns: '1fr' }}>
+            <div className="weather-explorer-card" style={{ padding: '48px 36px' }}>
+              <div style={{ maxWidth: '640px', margin: '0 auto', textAlign: 'center' }}>
+                <div style={{ fontSize: '48px', marginBottom: '20px' }}>🌐</div>
+                <h2 style={{ fontSize: '22px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '12px' }}>
+                  Analyze Remote Repository
+                </h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '32px' }}>
+                  Enter the public GitHub repository URL below. The server will perform a shallow clone, verify the directories, scan for all matching <code>*.f</code>, <code>*.f90</code>, and <code>*.f77</code> source files, and run the static analyzer in a single pass.
+                </p>
+
+                <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
+                  <input
+                    type="text"
+                    value={githubRepoUrl}
+                    onChange={e => setGithubRepoUrl(e.target.value)}
+                    placeholder="https://github.com/username/repository"
+                    disabled={isGithubAnalyzing}
+                    style={{
+                      flex: 1,
+                      padding: '14px 20px',
+                      borderRadius: '8px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      color: 'var(--text-main)',
+                      fontSize: '14px',
+                      outline: 'none',
+                      fontFamily: 'var(--font-mono)',
+                      transition: 'border-color 0.2s',
+                    }}
+                    onFocus={e => e.target.style.borderColor = 'var(--accent-cyan)'}
+                    onBlur={e => e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'}
+                  />
+                  <button
+                    className="action-btn-primary"
+                    onClick={() => runGithubAnalysis(githubRepoUrl)}
+                    disabled={isGithubAnalyzing || !githubRepoUrl.trim()}
+                    style={{
+                      padding: '0 28px',
+                      height: '50px',
+                      borderRadius: '8px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    {isGithubAnalyzing ? 'Analyzing...' : 'Verify & Analyze'}
+                  </button>
+                </div>
+                
+                <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', marginTop: '40px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  <div>🛡️ Shallow Clone (depth=1)</div>
+                  <div>⚡ Real-time SSE Stream</div>
+                  <div>⚙️ Semantic AST Validation</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </main>
       )}
 

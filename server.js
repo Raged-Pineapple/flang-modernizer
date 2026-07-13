@@ -17,7 +17,11 @@ const IS_WINDOWS = process.platform === 'win32';
 app.post('/api/analyze', (req, res) => {
   const { files } = req.body;
 
+  console.log(`[${new Date().toISOString()}] POST /api/analyze - Received ${files.length} file(s)`);
+  files.forEach(f => console.log(`  - File: ${f.name} (${f.content ? f.content.length : 0} chars)`));
+
   if (!files || !Array.isArray(files) || files.length === 0) {
+    console.warn('  Invalid request: empty or missing files array');
     return res.status(400).json({ error: 'Missing or invalid files array' });
   }
 
@@ -55,7 +59,13 @@ app.post('/api/analyze', (req, res) => {
       execArgs = filePaths;
     }
 
+    console.log(`  Running command: ${execCmd} ${execArgs.join(' ')}`);
+
     execFile(execCmd, execArgs, { timeout: 8000 }, (error, stdout, stderr) => {
+      console.log(`  Execution completed. Exit Code: ${error ? (error.code || 1) : 0}`);
+      console.log(`  Stdout length: ${stdout ? stdout.length : 0}`);
+      console.log(`  Stderr length: ${stderr ? stderr.length : 0}`);
+
       // Clean up the temporary files
       try {
         fs.rmSync(tempDirPath, { recursive: true, force: true });
@@ -64,6 +74,7 @@ app.post('/api/analyze', (req, res) => {
       }
 
       if (error && error.code === 'ENOENT') {
+        console.error(`  Command '${execCmd}' not found.`);
         return res.status(500).json({
           error: `Executable/command '${execCmd}' not found.`
         });
@@ -73,7 +84,7 @@ app.post('/api/analyze', (req, res) => {
         success: true,
         stdout: stdout || '',
         stderr: stderr || '',
-        exitCode: error ? error.code : 0
+        exitCode: error ? (error.code || 1) : 0
       });
     });
 
@@ -86,6 +97,144 @@ app.post('/api/analyze', (req, res) => {
 
     console.error('API Error:', err);
     res.status(500).json({ error: 'Internal server error: ' + err.message });
+  }
+});
+
+const simpleGit = require('simple-git');
+
+// Helper to recursively find Fortran files
+const walkDirectory = (dir, fileList = []) => {
+  const files = fs.readdirSync(dir);
+  for (const file of files) {
+    const filePath = path.join(dir, file);
+    const stat = fs.statSync(filePath);
+    if (stat.isDirectory()) {
+      if (file !== '.git' && file !== 'node_modules' && file !== 'build') {
+        walkDirectory(filePath, fileList);
+      }
+    } else {
+      const ext = path.extname(file).toLowerCase();
+      if (['.f', '.f90', '.f77', '.for', '.f95', '.f03', '.f08'].includes(ext)) {
+        fileList.push(filePath);
+      }
+    }
+  }
+  return fileList;
+};
+
+app.get('/api/analyze-github', async (req, res) => {
+  const { repoUrl } = req.query;
+
+  // Set SSE Headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+
+  const sendProgress = (type, message, data = null) => {
+    res.write(`data: ${JSON.stringify({ type, message, data })}\n\n`);
+  };
+
+  if (!repoUrl) {
+    sendProgress('error', 'Missing repoUrl query parameter');
+    return res.end();
+  }
+
+  console.log(`[${new Date().toISOString()}] GET /api/analyze-github - Target: ${repoUrl}`);
+  sendProgress('progress', `Verifying remote repository existence: ${repoUrl}`);
+
+  const git = simpleGit();
+  try {
+    await git.listRemote([repoUrl]);
+    sendProgress('progress', 'Repository verified successfully.');
+  } catch (err) {
+    console.error('Verification failed:', err.message);
+    sendProgress('error', `Repository verification failed. Please check that the URL is correct and public.`);
+    return res.end();
+  }
+
+  const tempDirName = `flang-git-${uuidv4()}`;
+  const tempDirPath = path.join(os.tmpdir(), tempDirName);
+
+  try {
+    sendProgress('progress', 'Cloning remote repository (shallow depth=1)...');
+    await git.clone(repoUrl, tempDirPath, ['--depth', '1']);
+    sendProgress('progress', 'Cloning complete. Scanning for Fortran files...');
+
+    const filePaths = walkDirectory(tempDirPath);
+    if (filePaths.length === 0) {
+      sendProgress('error', 'No Fortran source files found in this repository.');
+      try {
+        fs.rmSync(tempDirPath, { recursive: true, force: true });
+      } catch (_) {}
+      return res.end();
+    }
+
+    sendProgress('progress', `Discovered ${filePaths.length} Fortran file(s):`);
+    filePaths.forEach(fp => {
+      sendProgress('file_found', path.relative(tempDirPath, fp));
+    });
+
+    let execCmd = '';
+    let execArgs = [];
+
+    if (IS_WINDOWS) {
+      const wslPaths = filePaths.map(p => {
+        return p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, drive) => `/mnt/${drive.toLowerCase()}`);
+      });
+      execCmd = 'wsl';
+      execArgs = [
+        '-d', 'Ubuntu',
+        '-e', '/home/dell/flang-modernizer/build/tools/flang-modernizer/flang-modernizer',
+        ...wslPaths
+      ];
+    } else {
+      execCmd = '/home/dell/flang-modernizer/build/tools/flang-modernizer/flang-modernizer';
+      execArgs = filePaths;
+    }
+
+    sendProgress('progress', 'Starting compiler static analysis on translation units...');
+    console.log(`  Running remote analysis: ${execCmd} ${execArgs.join(' ')}`);
+
+    execFile(execCmd, execArgs, { timeout: 15000 }, (error, stdout, stderr) => {
+      console.log(`  Execution completed. Exit Code: ${error ? (error.code || 1) : 0}`);
+
+      try {
+        fs.rmSync(tempDirPath, { recursive: true, force: true });
+      } catch (cleanupErr) {
+        console.error('Failed to clean up temp directory:', cleanupErr);
+      }
+
+      if (error && error.code === 'ENOENT') {
+        sendProgress('error', 'Compiler binary not found in WSL.');
+        return res.end();
+      }
+
+      // Strip Windows paths out of the stdout to make it look clean
+      const cleanedStdout = stdout 
+        ? stdout.replaceAll(tempDirPath.replace(/\\/g, '/'), '').replaceAll(tempDirPath, '') 
+        : '';
+      const baseNames = filePaths.map(fp => path.basename(fp));
+
+      sendProgress('complete', 'Analysis complete.', {
+        stdout: cleanedStdout || '',
+        stderr: stderr || '',
+        files: baseNames
+      });
+      res.end();
+    });
+
+  } catch (err) {
+    try {
+      if (fs.existsSync(tempDirPath)) {
+        fs.rmSync(tempDirPath, { recursive: true, force: true });
+      }
+    } catch (_) {}
+    console.error('GitHub API error:', err);
+    sendProgress('error', `Internal Server Error: ${err.message}`);
+    res.end();
   }
 });
 
