@@ -2710,6 +2710,7 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
                   <div>⚡ Real-time SSE Stream</div>
                   <div>⚙️ Semantic AST Validation</div>
                 </div>
+              </div>
             </div>
 
             {/* Report download button — shown after analysis completes */}
@@ -2735,6 +2736,8 @@ Static warnings will show multiple entry points, arithmetic branching, and a lay
                 </button>
                 <p className="report-cta-hint">View full analysis report &amp; export as PDF</p>
               </div>
+            )}
+          </div>
         </main>
       )}
 
